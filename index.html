@@ -670,6 +670,7 @@ const DIFFICULTIES = {
 };
 
 const WIN_SCORE = 7;
+const AI_CREASE_MIN_Y = WALL + PADDLE_R_AI + 44;
 
 let game = null; // populated on startMatch
 
@@ -800,7 +801,9 @@ function updateAiPaddle(dt){
   }
 
   targetX = clamp(targetX, WALL + PADDLE_R_AI, TABLE_W - WALL - PADDLE_R_AI);
-  targetY = clamp(targetY, WALL + PADDLE_R_AI, TABLE_H/2 - PADDLE_R_AI);
+  // keep a crease gap so the AI can't camp flush against its own goal line and
+  // turn every straight shot up the middle into a dead-on wall-style bounce
+  targetY = clamp(targetY, AI_CREASE_MIN_Y, TABLE_H/2 - PADDLE_R_AI);
 
   const toTargetX = targetX - ai.x;
   const toTargetY = targetY - ai.y;
