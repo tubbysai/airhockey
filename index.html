@@ -893,7 +893,7 @@ function clampPuckToWalls(){
   const goalLeft = TABLE_W/2 - GOAL_W/2;
   const goalRight = TABLE_W/2 + GOAL_W/2;
   puck.x = clamp(puck.x, WALL + PUCK_R, TABLE_W - WALL - PUCK_R);
-  const inGoalRange = (puck.x > goalLeft + PUCK_R*0.3) && (puck.x < goalRight - PUCK_R*0.3);
+  const inGoalRange = (puck.x > goalLeft) && (puck.x < goalRight);
   if(!inGoalRange){
     puck.y = clamp(puck.y, WALL + PUCK_R, TABLE_H - WALL - PUCK_R);
   }
@@ -923,7 +923,7 @@ function stepPuck(dt){
   }
 
   // Top wall / goal
-  const inGoalRangeTop = (puck.x > goalLeft + PUCK_R*0.3) && (puck.x < goalRight - PUCK_R*0.3);
+  const inGoalRangeTop = (puck.x > goalLeft) && (puck.x < goalRight);
   if(!inGoalRangeTop && puck.y - PUCK_R < WALL){
     puck.y = WALL + PUCK_R;
     if(puck.vy < 0){
