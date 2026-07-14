@@ -738,13 +738,19 @@ window.addEventListener('keyup', (e)=>{
 });
 
 /* ============================== PHYSICS HELPERS ============================== */
+// Extra clearance keeps a paddle's clamped position from sitting so deep into a true
+// corner (where a side wall meets the top/bottom wall) that the puck has no legal,
+// non-overlapping spot left between the paddle and the walls - which otherwise causes
+// the puck to jitter/get stuck against the paddle right in the corner.
+const PADDLE_WALL_CLEARANCE = 22;
+
 function clampPlayerPaddle(p){
-  p.x = clamp(p.x, WALL + PADDLE_R_PLAYER, TABLE_W - WALL - PADDLE_R_PLAYER);
-  p.y = clamp(p.y, TABLE_H/2 + PADDLE_R_PLAYER, TABLE_H - WALL - PADDLE_R_PLAYER);
+  p.x = clamp(p.x, WALL + PADDLE_R_PLAYER + PADDLE_WALL_CLEARANCE, TABLE_W - WALL - PADDLE_R_PLAYER - PADDLE_WALL_CLEARANCE);
+  p.y = clamp(p.y, TABLE_H/2 + PADDLE_R_PLAYER, TABLE_H - WALL - PADDLE_R_PLAYER - PADDLE_WALL_CLEARANCE);
 }
 function clampAiPaddle(p){
-  p.x = clamp(p.x, WALL + PADDLE_R_AI, TABLE_W - WALL - PADDLE_R_AI);
-  p.y = clamp(p.y, WALL + PADDLE_R_AI, TABLE_H/2 - PADDLE_R_AI);
+  p.x = clamp(p.x, WALL + PADDLE_R_AI + PADDLE_WALL_CLEARANCE, TABLE_W - WALL - PADDLE_R_AI - PADDLE_WALL_CLEARANCE);
+  p.y = clamp(p.y, WALL + PADDLE_R_AI + PADDLE_WALL_CLEARANCE, TABLE_H/2 - PADDLE_R_AI);
 }
 
 function updatePlayerPaddle(dt){
@@ -862,6 +868,37 @@ function resolvePaddleCollision(paddle, radius){
   return false;
 }
 
+// Position-only overlap fix (no velocity/sound), used for the post-collision relaxation
+// pass so a puck simultaneously pinched between a paddle and a wall settles into a legal
+// spot within the same frame instead of jittering back and forth across frames.
+function depenetrateFromPaddle(paddle, radius){
+  const puck = game.puck;
+  const dx = puck.x - paddle.x, dy = puck.y - paddle.y;
+  const d = Math.hypot(dx, dy);
+  const minDist = radius + PUCK_R;
+  if(d < minDist){
+    if(d > 0.0001){
+      const nx = dx/d, ny = dy/d;
+      const overlap = minDist - d;
+      puck.x += nx * overlap;
+      puck.y += ny * overlap;
+    } else {
+      puck.y -= minDist;
+    }
+  }
+}
+
+function clampPuckToWalls(){
+  const puck = game.puck;
+  const goalLeft = TABLE_W/2 - GOAL_W/2;
+  const goalRight = TABLE_W/2 + GOAL_W/2;
+  puck.x = clamp(puck.x, WALL + PUCK_R, TABLE_W - WALL - PUCK_R);
+  const inGoalRange = (puck.x > goalLeft + PUCK_R*0.3) && (puck.x < goalRight - PUCK_R*0.3);
+  if(!inGoalRange){
+    puck.y = clamp(puck.y, WALL + PUCK_R, TABLE_H - WALL - PUCK_R);
+  }
+}
+
 function stepPuck(dt){
   const puck = game.puck;
   puck.x += puck.vx * dt;
@@ -913,6 +950,26 @@ function stepPuck(dt){
 
   resolvePaddleCollision(game.player, PADDLE_R_PLAYER);
   resolvePaddleCollision(game.ai, PADDLE_R_AI);
+
+  // relax any remaining overlap (e.g. puck pinched between a paddle and a wall in a
+  // corner) to a legal position within this same frame, position-only, no extra bounces
+  for(let i=0;i<10;i++){
+    clampPuckToWalls();
+    depenetrateFromPaddle(game.player, PADDLE_R_PLAYER);
+    depenetrateFromPaddle(game.ai, PADDLE_R_AI);
+  }
+
+  // Last-resort escape: a pathological corner pinch can still leave the puck grazing a
+  // paddle after relaxation. The direct line to the table's center is always open (a
+  // paddle can't block it while also pinning the puck against a corner), so nudge the
+  // puck that way each frame until it's clearly free.
+  if(dist(puck.x, puck.y, game.player.x, game.player.y) < PADDLE_R_PLAYER + PUCK_R - 0.01 ||
+     dist(puck.x, puck.y, game.ai.x, game.ai.y) < PADDLE_R_AI + PUCK_R - 0.01){
+    const toCenterX = TABLE_W/2 - puck.x, toCenterY = TABLE_H/2 - puck.y;
+    const cd = Math.hypot(toCenterX, toCenterY) || 1;
+    puck.x += (toCenterX/cd) * 6;
+    puck.y += (toCenterY/cd) * 6;
+  }
 
   // enforce minimum speed so puck never fully stalls
   const speed = Math.hypot(puck.vx, puck.vy);
