@@ -676,7 +676,7 @@ let game = null; // populated on startMatch
 
 function freshGame(){
   return {
-    puck: { x: TABLE_W/2, y: TABLE_H/2, vx:0, vy:0 },
+    puck: { x: TABLE_W/2, y: TABLE_H/2, vx:0, vy:0, _topCross:null, _bottomCross:null },
     player: { x: TABLE_W/2, y: TABLE_H - 130, prevX: TABLE_W/2, prevY: TABLE_H-130, vx:0, vy:0 },
     ai: { x: TABLE_W/2, y: 130, prevX: TABLE_W/2, prevY:130, vx:0, vy:0,
           trackedX: TABLE_W/2, trackedY: 130, aimOffsetX:0, aimOffsetY:0, aimTimer:0 },
@@ -890,17 +890,20 @@ function depenetrateFromPaddle(paddle, radius){
 
 function clampPuckToWalls(){
   const puck = game.puck;
-  const goalLeft = TABLE_W/2 - GOAL_W/2;
-  const goalRight = TABLE_W/2 + GOAL_W/2;
   puck.x = clamp(puck.x, WALL + PUCK_R, TABLE_W - WALL - PUCK_R);
-  const inGoalRange = (puck.x > goalLeft) && (puck.x < goalRight);
-  if(!inGoalRange){
-    puck.y = clamp(puck.y, WALL + PUCK_R, TABLE_H - WALL - PUCK_R);
+  // Respect the same crossing decision stepPuck made this step, so a puck legitimately
+  // headed through the goal mouth doesn't get yanked back into bounds by this safety pass.
+  if(!puck._topCross){
+    puck.y = Math.max(puck.y, WALL + PUCK_R);
+  }
+  if(!puck._bottomCross){
+    puck.y = Math.min(puck.y, TABLE_H - WALL - PUCK_R);
   }
 }
 
 function stepPuck(dt){
   const puck = game.puck;
+  const prevX = puck.x, prevY = puck.y;
   puck.x += puck.vx * dt;
   puck.y += puck.vy * dt;
 
@@ -922,30 +925,64 @@ function stepPuck(dt){
     }
   }
 
-  // Top wall / goal
-  const inGoalRangeTop = (puck.x > goalLeft) && (puck.x < goalRight);
-  if(!inGoalRangeTop && puck.y - PUCK_R < WALL){
-    puck.y = WALL + PUCK_R;
-    if(puck.vy < 0){
-      puck.vy = -puck.vy * WALL_RESTITUTION;
-      wallBounceFx(puck.x, puck.y);
+  // Top wall / goal. A fast, steep-angle shot can move several units sideways in a
+  // single step, so decide goal-vs-post using the puck's interpolated x at the exact
+  // moment its leading edge crosses the goal line (not wherever it ends up after this
+  // whole step's lateral travel) - otherwise a shot that truly crossed inside the posts
+  // can land just outside them by the time the step finishes and wrongly bounce.
+  const topEdgeNow = puck.y - PUCK_R;
+  if(topEdgeNow < WALL){
+    if(puck._topCross == null){
+      const topEdgePrev = prevY - PUCK_R;
+      let xAtLine = puck.x;
+      if(topEdgePrev >= WALL){
+        const t = clamp((topEdgePrev - WALL) / ((topEdgePrev - topEdgeNow) || 1), 0, 1);
+        xAtLine = prevX + (puck.x - prevX) * t;
+      }
+      puck._topCross = (xAtLine > goalLeft) && (xAtLine < goalRight);
     }
-  } else if(inGoalRangeTop && puck.y + PUCK_R < 0){
-    scoreGoal('player');
-    return;
+    if(puck._topCross){
+      if(puck.y + PUCK_R < 0){
+        scoreGoal('player');
+        return;
+      }
+    } else {
+      puck.y = WALL + PUCK_R;
+      if(puck.vy < 0){
+        puck.vy = -puck.vy * WALL_RESTITUTION;
+        wallBounceFx(puck.x, puck.y);
+      }
+    }
+  } else {
+    puck._topCross = null;
   }
 
-  // Bottom wall / goal
-  const inGoalRangeBottom = inGoalRangeTop;
-  if(!inGoalRangeBottom && puck.y + PUCK_R > TABLE_H - WALL){
-    puck.y = TABLE_H - WALL - PUCK_R;
-    if(puck.vy > 0){
-      puck.vy = -puck.vy * WALL_RESTITUTION;
-      wallBounceFx(puck.x, puck.y);
+  // Bottom wall / goal (mirror of the top logic)
+  const bottomEdgeNow = puck.y + PUCK_R;
+  if(bottomEdgeNow > TABLE_H - WALL){
+    if(puck._bottomCross == null){
+      const bottomEdgePrev = prevY + PUCK_R;
+      let xAtLine = puck.x;
+      if(bottomEdgePrev <= TABLE_H - WALL){
+        const t = clamp(((TABLE_H - WALL) - bottomEdgePrev) / ((bottomEdgeNow - bottomEdgePrev) || 1), 0, 1);
+        xAtLine = prevX + (puck.x - prevX) * t;
+      }
+      puck._bottomCross = (xAtLine > goalLeft) && (xAtLine < goalRight);
     }
-  } else if(inGoalRangeBottom && puck.y - PUCK_R > TABLE_H){
-    scoreGoal('ai');
-    return;
+    if(puck._bottomCross){
+      if(puck.y - PUCK_R > TABLE_H){
+        scoreGoal('ai');
+        return;
+      }
+    } else {
+      puck.y = TABLE_H - WALL - PUCK_R;
+      if(puck.vy > 0){
+        puck.vy = -puck.vy * WALL_RESTITUTION;
+        wallBounceFx(puck.x, puck.y);
+      }
+    }
+  } else {
+    puck._bottomCross = null;
   }
 
   resolvePaddleCollision(game.player, PADDLE_R_PLAYER);
@@ -1028,6 +1065,8 @@ function scoreGoal(scorer){
   game.puck.y = TABLE_H/2;
   game.puck.vx = 0;
   game.puck.vy = 0;
+  game.puck._topCross = null;
+  game.puck._bottomCross = null;
 }
 
 function updateScoreUI(){
