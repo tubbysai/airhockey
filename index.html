@@ -517,8 +517,8 @@ function toVirtual(clientX, clientY){
    a trapezoid so the player's edge (y = TABLE_H) reads as "near" (full width) and the
    AI's edge (y = 0) reads as "far" (narrower, compressed toward the top) - like looking
    over the table from the player's end rather than a straight top-down view. */
-const PERSPECTIVE_POWER = 1.45;
-const FAR_SCALE = 0.66;
+const PERSPECTIVE_POWER = 1.8;
+const FAR_SCALE = 0.42;
 
 function depthAt(y){
   const t = clamp(y / TABLE_H, 0, 1);
